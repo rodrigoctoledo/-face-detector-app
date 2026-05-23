@@ -13,71 +13,49 @@ class HudView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     private val bgPaint = Paint().apply {
-        color = Color.argb(160, 0, 0, 0)
+        color = Color.argb(200, 0, 0, 0)
     }
 
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textSize = 32f
+        textSize = 38f
         typeface = Typeface.MONOSPACE
+        setShadowLayer(3f, 1f, 1f, Color.BLACK)
     }
 
-    private val accentPaintAccurate = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = FaceOverlayView.COLOR_ACCURATE
-        textSize = 32f
-        typeface = Typeface.MONOSPACE
-    }
+    private val accuratePaint = Paint(basePaint).apply { color = Color.rgb(30, 144, 255) }
+    private val fastPaint     = Paint(basePaint).apply { color = Color.rgb(57, 255, 20) }
+    private val consensusPaint= Paint(basePaint).apply { color = Color.rgb(255, 0, 255) }
 
-    private val accentPaintFast = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = FaceOverlayView.COLOR_FAST
-        textSize = 32f
-        typeface = Typeface.MONOSPACE
-    }
-
-    private val accentPaintConsensus = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = FaceOverlayView.COLOR_CONSENSUS
-        textSize = 32f
-        typeface = Typeface.MONOSPACE
-    }
-
-    private val padding = 16f
-    private val lineHeight = 38f
-    private val bgRect = RectF()
+    private val pad  = 20f
+    private val lineH = 46f
 
     var stats: DualDetectorManager.Stats? = null
-        set(value) {
-            field = value
-            invalidate()
-        }
+        set(value) { field = value; invalidate() }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val h = (pad * 2 + 5 * lineH).toInt()
+        setMeasuredDimension(MeasureSpec.getSize(widthMeasureSpec), h)
+    }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val s = stats ?: return
+        val s = stats ?: drawPlaceholder(canvas).also { return }
 
-        val lines = listOf(
-            "PIPELINE : ${s.pipelineFps.format(1)} fps",
-            "ACCURATE : ${s.accurateFps.format(1)} fps  |  faces: ${s.accurateCount}",
-            "FAST     : ${s.fastFps.format(1)} fps  |  faces: ${s.fastCount}",
-            "CONSENSUS: faces ${s.consensusCount}",
-            "MODE     : ${s.displayMode.name}"
-        )
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
 
-        val totalHeight = padding * 2 + lines.size * lineHeight
-        bgRect.set(0f, 0f, width.toFloat(), totalHeight)
-        canvas.drawRect(bgRect, bgPaint)
-
-        var y = padding + textPaint.textSize
-        for ((i, line) in lines.withIndex()) {
-            val paint = when (i) {
-                1 -> accentPaintAccurate
-                2 -> accentPaintFast
-                3 -> accentPaintConsensus
-                else -> textPaint
-            }
-            canvas.drawText(line, padding, y, paint)
-            y += lineHeight
-        }
+        var y = pad + basePaint.textSize
+        canvas.drawText("PIPELINE : ${s.pipelineFps.fmt(1)} fps", pad, y, basePaint);     y += lineH
+        canvas.drawText("ACCURATE : ${s.accurateFps.fmt(1)} fps  |  faces: ${s.accurateCount}", pad, y, accuratePaint); y += lineH
+        canvas.drawText("FAST     : ${s.fastFps.fmt(1)} fps  |  faces: ${s.fastCount}",     pad, y, fastPaint);      y += lineH
+        canvas.drawText("CONSENSO : faces ${s.consensusCount}",                              pad, y, consensusPaint); y += lineH
+        canvas.drawText("MODO     : ${s.displayMode.name}",                                  pad, y, basePaint)
     }
 
-    private fun Float.format(digits: Int) = "%.${digits}f".format(this)
+    private fun drawPlaceholder(canvas: Canvas) {
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), bgPaint)
+        canvas.drawText("Iniciando...", pad, pad + basePaint.textSize, basePaint)
+    }
+
+    private fun Float.fmt(d: Int) = "%.${d}f".format(this)
 }
