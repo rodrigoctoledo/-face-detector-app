@@ -2,14 +2,18 @@ package com.facedetector.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import com.facedetector.camera.CameraManager
 import com.facedetector.camera.ImageSaver
 import com.facedetector.databinding.ActivityMainBinding
 import com.facedetector.detector.DisplayMode
@@ -18,8 +22,8 @@ import com.facedetector.detector.DualDetectorManager
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private lateinit var cameraManager: CameraManager
     private lateinit var detectorManager: DualDetectorManager
+    private var cameraProvider: ProcessCameraProvider? = null
 
     private val requiredPermissions: Array<String>
         get() = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
@@ -88,29 +92,82 @@ class MainActivity : AppCompatActivity() {
             binding.hudView.stats = stats
         }
 
-        cameraManager = CameraManager(
-            context = this,
-            lifecycleOwner = this,
-            previewView = binding.previewView
-        ) { imageProxy ->
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
+        cameraProviderFuture.addListener({
+            cameraProvider = cameraProviderFuture.get()
+            bindCamera()
+        }, ContextCompat.getMainExecutor(this))
+
+        updateButtonStates()
+    }
+
+    private fun bindCamera() {
+        val provider = cameraProvider ?: return
+
+        val preview = Preview.Builder().build().also {
+            it.setSurfaceProvider(binding.previewView.surfaceProvider)
+        }
+
+        val imageAnalysis = ImageAnalysis.Builder()
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+            .build()
+
+        imageAnalysis.setAnalyzer(java.util.concurrent.Executors.newSingleThreadExecutor()) { imageProxy ->
             val rotation = imageProxy.imageInfo.rotationDegrees
-            val w = imageProxy.width
-            val h = imageProxy.height
+            val imgW = imageProxy.width
+            val imgH = imageProxy.height
+
+            // Calcula a matriz de transformação do espaço da imagem para o espaço da view
+            // levando em conta rotação, espelhamento e letterbox
+            val matrix = calcTransformMatrix(rotation, imgW, imgH)
+
             runOnUiThread {
-                binding.overlayView.imageWidth    = w
-                binding.overlayView.imageHeight   = h
-                binding.overlayView.imageRotation = rotation
+                binding.overlayView.transformMatrix = matrix
             }
+
             detectorManager.processFrame(imageProxy)
         }
 
-        cameraManager.startCamera()
-        updateButtonStates()
+        try {
+            provider.unbindAll()
+            provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun calcTransformMatrix(rotation: Int, imgW: Int, imgH: Int): Matrix {
+        val viewW = binding.overlayView.width.toFloat().takeIf { it > 0 } ?: 1f
+        val viewH = binding.overlayView.height.toFloat().takeIf { it > 0 } ?: 1f
+
+        val matrix = Matrix()
+
+        // 1. Centraliza a imagem na origem
+        matrix.postTranslate(-imgW / 2f, -imgH / 2f)
+
+        // 2. Rotaciona
+        matrix.postRotate(rotation.toFloat())
+
+        // 3. Após rotação, calcula dimensões lógicas
+        val (logicW, logicH) = if (rotation == 90 || rotation == 270)
+            Pair(imgH.toFloat(), imgW.toFloat())
+        else
+            Pair(imgW.toFloat(), imgH.toFloat())
+
+        // 4. Escala para preencher a view (centerCrop)
+        val scale = maxOf(viewW / logicW, viewH / logicH)
+        matrix.postScale(scale, scale)
+
+        // 5. Move para o centro da view
+        matrix.postTranslate(viewW / 2f, viewH / 2f)
+
+        return matrix
     }
 
     override fun onDestroy() {
         super.onDestroy()
         if (::detectorManager.isInitialized) detectorManager.shutdown()
-        if (::cameraManager.isInitialized) cameraManager.shutdown()
+        cameraProvider?.unbindAll()
     }
 }
