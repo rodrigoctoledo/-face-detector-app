@@ -13,11 +13,11 @@
 
     <application
         android:allowBackup="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@android:drawable/sym_def_app_icon"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FaceDetector">
+        android:theme="@style/Theme.FaceDetector">    
 
         <!-- Bundle ML Kit face detection model inside the APK (offline) -->
         <meta-data
