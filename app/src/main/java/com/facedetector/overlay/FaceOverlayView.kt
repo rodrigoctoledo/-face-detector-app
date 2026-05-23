@@ -17,10 +17,10 @@ class FaceOverlayView @JvmOverloads constructor(
         const val COLOR_ACCURATE  = 0xFF1E90FF.toInt()
         const val COLOR_FAST      = 0xFF39FF14.toInt()
         const val COLOR_CONSENSUS = 0xFFFF00FF.toInt()
-        private const val OVAL_ALPHA    = 56
-        private const val CORNER_SIZE   = 40f
-        private const val STROKE_WIDTH  = 4f
-        private const val LANDMARK_RADIUS = 8f
+        private const val OVAL_ALPHA   = 56
+        private const val CORNER_SIZE  = 40f
+        private const val STROKE_WIDTH = 4f
+        private const val LANDMARK_R   = 8f
     }
 
     private val ovalFillPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
@@ -42,72 +42,27 @@ class FaceOverlayView @JvmOverloads constructor(
     var showLandmarks: Boolean = true
         set(value) { field = value; invalidate() }
 
-    var imageWidth: Int  = 640
-    var imageHeight: Int = 480
-    var imageRotation: Int = 0  // graus: 0, 90, 180, 270
+    // Matriz calculada no MainActivity — transforma coords da imagem → coords da view
+    var transformMatrix: Matrix = Matrix()
+        set(value) { field = value; invalidate() }
 
-    /**
-     * Converte coordenadas do espaço da imagem (saída do ML Kit) para
-     * coordenadas da View, levando em conta a rotação da câmera.
-     *
-     * O ML Kit devolve coordenadas no espaço do sensor (imageWidth x imageHeight).
-     * A câmera traseira em portrait normalmente tem rotation = 90.
-     */
-    private fun toViewCoord(px: Float, py: Float): PointF {
-        val vw = width.toFloat()
-        val vh = height.toFloat()
-        val iw = imageWidth.toFloat()
-        val ih = imageHeight.toFloat()
-
-        // normaliza para [0,1] no espaço rotacionado
-        val nx: Float
-        val ny: Float
-        when (imageRotation) {
-            90 -> {
-                // sensor landscape → view portrait
-                // x_norm = py/ih,  y_norm = 1 - px/iw
-                nx = py / ih
-                ny = 1f - px / iw
-            }
-            270 -> {
-                nx = 1f - py / ih
-                ny = px / iw
-            }
-            180 -> {
-                nx = 1f - px / iw
-                ny = 1f - py / ih
-            }
-            else -> {          // 0° — sensor já alinhado com a view
-                nx = px / iw
-                ny = py / ih
-            }
-        }
-
-        // escala para a view com letterbox/pillarbox
-        val scaleX: Float
-        val scaleY: Float
-        // após rotação, qual é a largura/altura lógica da imagem?
-        val logicW: Float
-        val logicH: Float
-        if (imageRotation == 90 || imageRotation == 270) {
-            logicW = ih; logicH = iw
-        } else {
-            logicW = iw; logicH = ih
-        }
-        val scale = maxOf(vw / logicW, vh / logicH)
-        val dx = (vw - logicW * scale) / 2f
-        val dy = (vh - logicH * scale) / 2f
-
-        return PointF(nx * logicW * scale + dx, ny * logicH * scale + dy)
+    private fun mapRect(rect: RectF): RectF {
+        val pts = floatArrayOf(
+            rect.left, rect.top,
+            rect.right, rect.top,
+            rect.right, rect.bottom,
+            rect.left, rect.bottom
+        )
+        transformMatrix.mapPoints(pts)
+        val xs = floatArrayOf(pts[0], pts[2], pts[4], pts[6])
+        val ys = floatArrayOf(pts[1], pts[3], pts[5], pts[7])
+        return RectF(xs.min(), ys.min(), xs.max(), ys.max())
     }
 
-    private fun scaledRect(rect: RectF): RectF {
-        val tl = toViewCoord(rect.left,  rect.top)
-        val br = toViewCoord(rect.right, rect.bottom)
-        return RectF(
-            minOf(tl.x, br.x), minOf(tl.y, br.y),
-            maxOf(tl.x, br.x), maxOf(tl.y, br.y)
-        )
+    private fun mapPoint(x: Float, y: Float): PointF {
+        val pts = floatArrayOf(x, y)
+        transformMatrix.mapPoints(pts)
+        return PointF(pts[0], pts[1])
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -127,9 +82,9 @@ class FaceOverlayView @JvmOverloads constructor(
             DetectorSource.CONSENSUS -> "CONSENSUS"
         }
 
-        val box = scaledRect(result.boundingBox)
+        val box = mapRect(result.boundingBox)
 
-        ovalFillPaint.color  = color; ovalFillPaint.alpha = OVAL_ALPHA
+        ovalFillPaint.color = color; ovalFillPaint.alpha = OVAL_ALPHA
         canvas.drawOval(box, ovalFillPaint)
 
         ovalStrokePaint.color = color; ovalStrokePaint.alpha = 255
@@ -139,24 +94,16 @@ class FaceOverlayView @JvmOverloads constructor(
         drawCorners(canvas, box)
 
         labelPaint.color = color
-        canvas.drawText(label, box.left, box.top - 10f, labelPaint)
+        canvas.drawText(label, box.left, maxOf(box.top - 10f, labelPaint.textSize), labelPaint)
 
         if (showLandmarks) {
             landmarkPaint.color = color
-            result.leftEyePosition?.let  { (x, y) ->
-                val p = toViewCoord(x, y); canvas.drawCircle(p.x, p.y, LANDMARK_RADIUS, landmarkPaint)
-            }
-            result.rightEyePosition?.let { (x, y) ->
-                val p = toViewCoord(x, y); canvas.drawCircle(p.x, p.y, LANDMARK_RADIUS, landmarkPaint)
-            }
-            result.nosePosition?.let     { (x, y) ->
-                val p = toViewCoord(x, y); canvas.drawCircle(p.x, p.y, LANDMARK_RADIUS, landmarkPaint)
-            }
-            result.leftMouthPosition?.let  { (x, y) ->
-                val p = toViewCoord(x, y); canvas.drawCircle(p.x, p.y, LANDMARK_RADIUS, landmarkPaint)
-            }
-            result.rightMouthPosition?.let { (x, y) ->
-                val p = toViewCoord(x, y); canvas.drawCircle(p.x, p.y, LANDMARK_RADIUS, landmarkPaint)
+            listOfNotNull(
+                result.leftEyePosition, result.rightEyePosition,
+                result.nosePosition, result.leftMouthPosition, result.rightMouthPosition
+            ).forEach { (x, y) ->
+                val p = mapPoint(x, y)
+                canvas.drawCircle(p.x, p.y, LANDMARK_R, landmarkPaint)
             }
         }
     }
