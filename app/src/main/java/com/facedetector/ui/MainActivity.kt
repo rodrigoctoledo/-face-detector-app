@@ -35,11 +35,10 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
-        if (cameraGranted) {
+        if (permissions[Manifest.permission.CAMERA] == true) {
             startCameraAndDetection()
         } else {
-            Toast.makeText(this, "Camera permission is required", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Permissão de câmera necessária", Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -48,17 +47,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Keep screen on
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
         setupButtons()
-
-        if (allPermissionsGranted()) {
-            startCameraAndDetection()
-        } else {
-            permissionLauncher.launch(requiredPermissions)
-        }
+        if (allPermissionsGranted()) startCameraAndDetection()
+        else permissionLauncher.launch(requiredPermissions)
     }
 
     private fun allPermissionsGranted() = requiredPermissions.all {
@@ -67,16 +59,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupButtons() {
         binding.btnDual.setOnClickListener {
-            detectorManager.displayMode = DisplayMode.DUAL
-            updateButtonStates()
+            detectorManager.displayMode = DisplayMode.DUAL; updateButtonStates()
         }
         binding.btnAccurate.setOnClickListener {
-            detectorManager.displayMode = DisplayMode.ACCURATE
-            updateButtonStates()
+            detectorManager.displayMode = DisplayMode.ACCURATE; updateButtonStates()
         }
         binding.btnFast.setOnClickListener {
-            detectorManager.displayMode = DisplayMode.FAST
-            updateButtonStates()
+            detectorManager.displayMode = DisplayMode.FAST; updateButtonStates()
         }
         binding.btnLandmarks.setOnClickListener {
             binding.overlayView.showLandmarks = !binding.overlayView.showLandmarks
@@ -86,9 +75,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateButtonStates() {
         val mode = detectorManager.displayMode
-        binding.btnDual.alpha = if (mode == DisplayMode.DUAL) 1f else 0.5f
+        binding.btnDual.alpha     = if (mode == DisplayMode.DUAL)     1f else 0.5f
         binding.btnAccurate.alpha = if (mode == DisplayMode.ACCURATE) 1f else 0.5f
-        binding.btnFast.alpha = if (mode == DisplayMode.FAST) 1f else 0.5f
+        binding.btnFast.alpha     = if (mode == DisplayMode.FAST)     1f else 0.5f
     }
 
     private fun startCameraAndDetection() {
@@ -97,11 +86,6 @@ class MainActivity : AppCompatActivity() {
         detectorManager = DualDetectorManager(imageSaver) { results, stats ->
             binding.overlayView.results = results
             binding.hudView.stats = stats
-
-            // Pass image dimensions for correct scaling
-            if (results.isNotEmpty()) {
-                // imageWidth/Height updated in camera callback below
-            }
         }
 
         cameraManager = CameraManager(
@@ -109,12 +93,13 @@ class MainActivity : AppCompatActivity() {
             lifecycleOwner = this,
             previewView = binding.previewView
         ) { imageProxy ->
-            // Update overlay scale once we know image dimensions
+            val rotation = imageProxy.imageInfo.rotationDegrees
             val w = imageProxy.width
             val h = imageProxy.height
             runOnUiThread {
-                binding.overlayView.imageWidth = w
-                binding.overlayView.imageHeight = h
+                binding.overlayView.imageWidth    = w
+                binding.overlayView.imageHeight   = h
+                binding.overlayView.imageRotation = rotation
             }
             detectorManager.processFrame(imageProxy)
         }
